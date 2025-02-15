@@ -1,0 +1,54 @@
+name: Generate Gradle Lockfile
+
+on:
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  buildGradleLockFile:
+    runs-on: ubuntu-latest
+    container:
+      image: gradle:7.0-jdk11
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Gradle version
+        run: gradle --version
+
+      - name: Enable Version Catalogs
+        run: |
+          echo "enableFeaturePreview(\"VERSION_CATALOGS\")" >> settings.gradle.kts
+          if [ -d "buildSrc" ]; then
+            echo "enableFeaturePreview(\"VERSION_CATALOGS\")" >> buildSrc/settings.gradle.kts
+          fi
+
+      - name: Generate lockfiles
+        run: |
+          gradle dependencies --write-locks --warning-mode all
+          
+      - name: Upload Gradle Lock File
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradlelockfile
+          path: gradle.lockfile
+  semgrep:
+    needs: buildGradleLockFile
+    name: Scan
+    runs-on: ubuntu-20.04
+    env:
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+    container:
+      image: returntocorp/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifact from previous job
+        uses: actions/download-artifact@v4
+        with:
+          name: gradlelockfile
+      - run: |
+            ls -lah
+            semgrep ci --supply-chain --verbose
